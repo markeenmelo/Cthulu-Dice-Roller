@@ -25,36 +25,37 @@ def RollDie(min=1, max=10):
     result = randint(min,max)
     return result
 
+def CombineDice(Ten, One):
+  # Percentile dice: tens die 00-90, ones die 0-9. "00" + "0" is 100.
+  result = Ten*10 + One
+  return 100 if result == 0 else result
+
 def ResolveDice(BonusDie, PenaltyDie, Threshold, DiceString) :
-  TenResultPool = []
-  TenResultPool.append(RollDie(0, 9))
-
-  TenResult = min(TenResultPool)
-  OneResult = RollDie()
-
   if BonusDie > 0 and PenaltyDie > 0:
       return "Can't chain bonus and penalty dice"
 
-  for i in range(BonusDie):
-      TenResultPool.append(RollDie(0, 9))
-      TenResult = min(TenResultPool)
-  
-  for i in range(PenaltyDie):
-      TenResultPool.append(RollDie(0, 9))
-      TenResult = max(TenResultPool)
+  OneResult = RollDie(0, 9)
+  TenResultPool = [RollDie(0, 9) for _ in range(1 + BonusDie + PenaltyDie)]
 
-  CombinedResult = (TenResult*10) + OneResult
+  # Bonus dice keep the lowest total result, penalty dice the highest
+  # (compare totals, not tens digits, so that 00+0=100 is handled correctly).
+  pick = max if PenaltyDie > 0 else min
+  TenResult = pick(TenResultPool, key=lambda t: CombineDice(t, OneResult))
+
+  CombinedResult = CombineDice(TenResult, OneResult)
   desc = f"""
 Roll: {DiceString}
-Result: {str(TenResult*10)} ({'/'.join([str(i*10) for i in TenResultPool])}) + {str(OneResult)} = {str(CombinedResult)}
+Result: {TenResult*10:02d} ({'/'.join(f'{i*10:02d}' for i in TenResultPool)}) + {OneResult} = {CombinedResult}
 """
 
   if Threshold:
     ret = DiceResult()
+    # Fumble: 100 always; 96-100 when the skill is below 50.
+    Fumble = CombinedResult == 100 or (Threshold < 50 and CombinedResult >= 96)
     if CombinedResult == 1:
       ret.title = "Critical Success!"
       ret.colour = COL_CRIT_SUCCESS
-    elif CombinedResult == 100:
+    elif Fumble:
       ret.title = "Critical Failure!"
       ret.colour = COL_CRIT_FAILURE
     elif CombinedResult <= Threshold/5:
@@ -107,7 +108,7 @@ Unable to parse dice command. Usage:
     if diceString == 'help':
         return help
     
-    dice=[x for x in re.split('(\d*?[bpt])',diceString) if x]
+    dice=[x for x in re.split(r'(\d*?[bpt])',diceString) if x]
 
     if len(dice) > 1 and 'b' in diceString and 'p' in diceString:
         return "Can't chain bonus and penalty dice"
@@ -118,11 +119,11 @@ Unable to parse dice command. Usage:
 
     for die in dice:
         default_num = False
-        s=re.search('(\d*?)([bpt])', die)
+        s=re.search(r'(\d*?)([bpt])', die)
         if not s:
             default_num = True
             die="1"+die
-        s=re.search('(\d*?)([bpt])', die)
+        s=re.search(r'(\d*?)([bpt])', die)
         if not s:
             return fail
         g=s.groups()
@@ -170,5 +171,5 @@ async def cthulhu_roll(
         em.description=None
         await ctx.respond(embed=em)
 
-token=environ['DORIAN_TOKEN']
-bot.run(token)
+if __name__ == "__main__":
+    bot.run(environ['DORIAN_TOKEN'])
